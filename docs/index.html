@@ -179,6 +179,8 @@
 
     function getDigraph(edgeSet, nameSet) {
       return `digraph {
+        _T_ [label="T" fontsize=18 fontcolor="#fc369d"]
+        _S_ [label="S" fontsize=18 fontcolor="#1cbec2"]
         ${[...nameSet.values()].join("\n")}
 
         ${[...edgeSet.values()].join("\n")}
