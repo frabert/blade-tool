@@ -7,9 +7,21 @@
   <title>BLADE graph gen</title>
   <script src="parser.js"></script>
   <script src="viz.js"></script>
+  <style>
+    body {
+      width: 60em;
+      margin: auto;
+    }
+
+    textarea {
+      width: 100%;
+    }
+  </style>
 </head>
 <body>
-  <textarea id="input">
+  Generate alpha-nodes: <input id="gen-alpha" type="checkbox">
+  <br>
+  <textarea id="input" height=100 width=100>
     x := 0;
     while x < length(a) do
       y := a[x];
@@ -28,6 +40,8 @@
   </div>
 
   <script>
+    const genAlphaNodes = document.getElementById("gen-alpha")
+
     /**
      * @callback genNewNameCallback
      * @returns {String} A fresh name
@@ -47,7 +61,8 @@
         case "bool":
           return [ expr.value.toString(), expr.value.toString() ]
         case "name":
-          edgeSet.add(`${expr.name} -> alpha_${expr.name}`)
+          if(genAlphaNodes.checked) { edgeSet.add(`${expr.name} -> alpha_${expr.name}`) }
+          nameSet.add(`${expr.name} [style=filled]`)
           return [ expr.name, expr.name ]
         case "length":
         case "base":
