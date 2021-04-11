@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BLADE graph gen</title>
+  <script src="parser.js"></script>
+  <script src="viz.js"></script>
+</head>
+<body>
+  <textarea id="input">
+    x := 0;
+    while x < length(a) do
+      y := a[x];
+      b[y] := x + 1;
+      z := b[y];
+      if z < 0 then
+        x:=0
+      else
+        y:=0
+      endif
+    endwhile
+  </textarea>
+  <button id="btn">Parse</button>
+  <div id="output">
+
+  </div>
+
+  <script>
+    /**
+     * @callback genNewNameCallback
+     * @returns {String} A fresh name
+     */
+
+    /**
+     * Analyzes an expression
+     * @param expr The expression to analyze
+     * @param {Set<String>} edgeSet Where new edges will be put
+     * @param {Set<String>} nameSet Where new names will be put
+     * @param {genNewNameCallback} getNewName Generates fresh names
+     * @returns A tuple containing the name of the expression and its string representation
+     */
+    function getExpressionConstraints(expr, edgeSet, nameSet, getNewName) {
+      switch(expr.type) {
+        case "int":
+        case "bool":
+          return [ expr.value.toString(), expr.value.toString() ]
+        case "name":
+          edgeSet.add(`${expr.name} -> alpha_${expr.name}`)
+          return [ expr.name, expr.name ]
+        case "length":
+        case "base":
+          {
+            const newName = getNewName()
+
+            const e = getExpressionConstraints(expr.value, edgeSet, nameSet, getNewName)
+            edgeSet.add(`${e[0]} -> ${newName}`)
+            nameSet.add(`${newName} [label="${expr.type}(${e[1]})"]`)
+
+            return [ newName, `${expr.type}(${e[1]})` ]
+          }
+        case "select":
+          {
+            const newName = getNewName()
+
+            const e1 = getExpressionConstraints(expr.e1, edgeSet, nameSet, getNewName);
+            const e2 = getExpressionConstraints(expr.e2, edgeSet, nameSet, getNewName);
+            const e3 = getExpressionConstraints(expr.e3, edgeSet, nameSet, getNewName);
+
+            edgeSet.add(`${e1[0]} -> ${newName}`)
+            nameSet.add(`${newName} [label="${e1[1]} ? ${e2[1]} : ${e3[1]}"]`)
+            return [ newName, `${e1[1]} ? ${e2[1]} : ${e3[1]}` ]
+          }
+        case "op":
+          {
+            const newName = getNewName();
+
+            const e1 = getExpressionConstraints(expr.e1, edgeSet, nameSet, getNewName);
+            const e2 = getExpressionConstraints(expr.e2, edgeSet, nameSet, getNewName);
+            
+            edgeSet.add(`${e1[0]} -> ${newName}`)
+            edgeSet.add(`${e2[0]} -> ${newName}`)
+            nameSet.add(`${newName} [label="${e1[1]} ${expr.op} ${e2[1]}"]`)
+            return [ newName, `${e1[1]} ${expr.op} ${e2[1]}` ]
+          }
+        default: throw "Not implemented"
+      }
+    }
+
+    /**
+     * Analyzes a command
+     * @param expr The command to analyze
+     * @param {Set<String>} edgeSet Where new expression edges will be put
+     * @param {Set<String>} nameSet Where new expression names will be put
+     * @param {genNewNameCallback} getNewName Generates fresh expression names
+     */
+    function getCommandConstraints(cmd, edgeSet, nameSet, getNewName) {
+      switch(cmd.type) {
+        case "skip":
+        case "fail": break;
+        case "seq": {
+          getCommandConstraints(cmd.c1, edgeSet, nameSet, getNewName)
+          getCommandConstraints(cmd.c2, edgeSet, nameSet, getNewName)
+          break;
+        }
+        case "if": {
+          const cond = getExpressionConstraints(cmd.cond, edgeSet, nameSet, getNewName)
+          getCommandConstraints(cmd.c1, edgeSet, nameSet, getNewName)
+          getCommandConstraints(cmd.c2, edgeSet, nameSet, getNewName)
+
+          edgeSet.add(`${cond[0]} -> _S_`);
+          break;
+        }
+        case "while": {
+          const cond = getExpressionConstraints(cmd.cond, edgeSet, nameSet, getNewName)
+          getCommandConstraints(cmd.body, edgeSet, nameSet, getNewName)
+
+          edgeSet.add(`${cond[0]} -> _S_`);
+          break;
+        }
+        case "protect": {
+          getExpressionConstraints(cmd.expr, edgeSet, nameSet, getNewName)
+          break;
+        }
+        case "asgn": {
+          const e = getExpressionConstraints(cmd.expr, edgeSet, nameSet, getNewName)
+          edgeSet.add(`${e[0]} -> ${cmd.name}`)
+          break;
+        }
+        case "arr-write": {
+          const e1 = getExpressionConstraints(cmd.index, edgeSet, nameSet, getNewName)
+          const e2 = getExpressionConstraints(cmd.expr, edgeSet, nameSet, getNewName)
+          edgeSet.add(`${e1[0]} -> _S_`)
+          break;
+        }
+        case "ptr-write": {
+          const e1 = getExpressionConstraints(cmd.ptr, edgeSet, nameSet, getNewName)
+          const e2 = getExpressionConstraints(cmd.expr, edgeSet, nameSet, getNewName)
+          edgeSet.add(`${e1[0]} -> _S_`)
+          break;
+        }
+        case "arr-read": {
+          const e = getExpressionConstraints(cmd.index, edgeSet, nameSet, getNewName)
+          const newName = getNewName()
+          nameSet.add(`${newName} [label="${cmd.arr}[${e[1]}]"]`)
+
+          edgeSet.add(`${e[0]} -> _S_`)
+          edgeSet.add(`_T_ -> ${newName}`)
+          edgeSet.add(`${newName} -> ${cmd.name}`)
+          break;
+        }
+        case "ptr-read": {
+          const e = getExpressionConstraints(cmd.index, edgeSet, nameSet, getNewName)
+
+          edgeSet.add(`${e[0]} -> _S_`)
+          edgeSet.add(`_T_ -> ${e[0]}`)
+          edgeSet.add(`${e[0]} -> ${cmd.name}`)
+          break;
+        }
+        default: throw `Not implemented: ${cmd.type}`
+      }
+    }
+
+    function getDigraph(edgeSet, nameSet) {
+      return `digraph {
+        ${[...nameSet.values()].join("\n")}
+
+        ${[...edgeSet.values()].join("\n")}
+      }`
+    }
+
+    const input = document.getElementById("input")
+    const output = document.getElementById("output")
+    const btn = document.getElementById("btn")
+
+    btn.addEventListener('click', function() {
+      try {
+        let i = 0;
+        const edgeSet = new Set();
+        const nameSet = new Set();
+        const cmd = parser.parse(input.value.trim())
+        getCommandConstraints(cmd, edgeSet, nameSet, () => `e${i++}`)
+        const svg = Viz(getDigraph(edgeSet, nameSet), "svg")
+        output.innerHTML = svg;
+      } catch(e) {
+        output.innerText = e.toString()
+        console.log(e)
+      }
+    })
+  </script>
+</body>
+</html>
