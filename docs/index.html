@@ -197,7 +197,7 @@
         const edgeSet = new Set();
         const nameSet = new Set();
         const cmd = parser.parse(input.value.trim())
-        getCommandConstraints(cmd, edgeSet, nameSet, () => `e${i++}`)
+        getCommandConstraints(cmd, edgeSet, nameSet, () => `e_${i++}`)
         const svg = Viz(getDigraph(edgeSet, nameSet), "svg")
         output.innerHTML = svg;
       } catch(e) {
