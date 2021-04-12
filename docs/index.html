@@ -15,11 +15,14 @@
 
     textarea {
       width: 100%;
+      height: 25em;
     }
   </style>
 </head>
 <body>
   Generate alpha-nodes: <input id="gen-alpha" type="checkbox">
+  <br>
+  Generate full def-use graph: <input id="gen-defuse" type="checkbox">
   <br>
   <textarea id="input" height=100 width=100>
     x := 0;
@@ -76,6 +79,7 @@
 
   <script>
     const genAlphaNodes = document.getElementById("gen-alpha")
+    const genFullDefUse = document.getElementById("gen-defuse")
 
     /**
      * @callback genNewNameCallback
@@ -119,6 +123,10 @@
             const e3 = getExpressionConstraints(expr.e3, edgeSet, nameSet, getNewName);
 
             edgeSet.add(`${e1[0]} -> ${newName}`)
+            if(genFullDefUse.checked) {
+              edgeSet.add(`${e2[0]} -> ${newName}`)
+              edgeSet.add(`${e3[0]} -> ${newName}`)
+            }
             nameSet.add(`${newName} [label="${e1[1]} ? ${e2[1]} : ${e3[1]}"]`)
             return [ newName, `${e1[1]} ? ${e2[1]} : ${e3[1]}` ]
           }
@@ -135,6 +143,50 @@
             return [ newName, `${e1[1]} ${expr.op} ${e2[1]}` ]
           }
         default: throw "Not implemented"
+      }
+    }
+
+    function getRhsConstraints(rhs, edgeSet, nameSet, getNewName) {
+      switch(rhs.type) {
+        case "expr": {
+          return getExpressionConstraints(rhs.expr, edgeSet, nameSet, getNewName);
+        }
+        case "arr-read": {
+          const e = getExpressionConstraints(rhs.index, edgeSet, nameSet, getNewName)
+          const newName = getNewName()
+          nameSet.add(`${newName} [label="${rhs.arr}[${e[1]}]"]`)
+          edgeSet.add(`${e[0]} -> _S_`)
+          edgeSet.add(`_T_ -> ${newName}`)
+          if(genFullDefUse.checked) {
+            edgeSet.add(`${e[0]} -> ${newName}`)
+          }
+          return [newName, `${rhs.arr}[${e[1]}]`]
+        }
+        case "ptr-read": {
+          const e = getExpressionConstraints(rhs.expr, edgeSet, nameSet, getNewName)
+          const newName = getNewName()
+
+          nameSet.add(`${newName} [label="*${e[1]}"]`)
+          edgeSet.add(`${e[0]} -> _S_`)
+          edgeSet.add(`_T_ -> ${e[0]}`)
+
+          if(genFullDefUse.checked) {
+            edgeSet.add(`${newName} -> ${e[0]}`)
+          }
+
+          return [newName, `*${e[1]}`]
+        }
+        case "protect": {
+          const r = getRhsConstraints(rhs.arg, edgeSet, nameSet, getNewName)
+          const newName = getNewName()
+          nameSet.add(`${newName} [label="protect(${r[1]})"]`)
+
+          if(genFullDefUse.checked) {
+            edgeSet.add(`${newName} -> ${r[0]}`)
+          }
+
+          return [newName, `protect(${r[1]})`]
+        }
       }
     }
 
@@ -169,13 +221,9 @@
           edgeSet.add(`${cond[0]} -> _S_`);
           break;
         }
-        case "protect": {
-          getExpressionConstraints(cmd.expr, edgeSet, nameSet, getNewName)
-          break;
-        }
         case "asgn": {
-          const e = getExpressionConstraints(cmd.expr, edgeSet, nameSet, getNewName)
-          edgeSet.add(`${e[0]} -> ${cmd.name}`)
+          const r = getRhsConstraints(cmd.value, edgeSet, nameSet, getNewName)
+          edgeSet.add(`${r[0]} -> ${cmd.name}`)
           break;
         }
         case "arr-write": {
@@ -190,32 +238,14 @@
           edgeSet.add(`${e1[0]} -> _S_`)
           break;
         }
-        case "arr-read": {
-          const e = getExpressionConstraints(cmd.index, edgeSet, nameSet, getNewName)
-          const newName = getNewName()
-          nameSet.add(`${newName} [label="${cmd.arr}[${e[1]}]"]`)
-
-          edgeSet.add(`${e[0]} -> _S_`)
-          edgeSet.add(`_T_ -> ${newName}`)
-          edgeSet.add(`${newName} -> ${cmd.name}`)
-          break;
-        }
-        case "ptr-read": {
-          const e = getExpressionConstraints(cmd.index, edgeSet, nameSet, getNewName)
-
-          edgeSet.add(`${e[0]} -> _S_`)
-          edgeSet.add(`_T_ -> ${e[0]}`)
-          edgeSet.add(`${e[0]} -> ${cmd.name}`)
-          break;
-        }
         default: throw `Not implemented: ${cmd.type}`
       }
     }
 
     function getDigraph(edgeSet, nameSet) {
       return `digraph {
-        _T_ [label="T" fontsize=18 fontcolor="#fc369d"]
-        _S_ [label="S" fontsize=18 fontcolor="#1cbec2"]
+        _T_ [label="T" shape=circle fontsize=20 fontcolor="#fc369d" color="#fc369d"]
+        _S_ [label="S" shape=circle fontsize=20 fontcolor="#1cbec2" color="#1cbec2"]
         ${[...nameSet.values()].join("\n")}
 
         ${[...edgeSet.values()].join("\n")}
