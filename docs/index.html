@@ -33,7 +33,42 @@
         y:=0
       endif
     endwhile
-  </textarea>
+  </textarea><br>
+  <details>
+    <summary>Syntax:</summary>
+    <pre>
+&lt;cmd_seq&gt; ::=
+    &lt;cmd&gt; ';' &lt;cmd_seq&gt;
+  | &lt;cmd&gt;
+
+&lt;cmd&gt; ::=
+    'skip'
+  | 'fail'
+  | 'if' &lt;expr&gt; 'then' &lt;cmd_seq&gt; 'else' &lt;cmd_seq&gt; 'endif'
+  | 'while' &lt;expr&gt; 'do' &lt;cmd_seq&gt; 'endwhile'
+  | &lt;ide&gt; ':=' &lt;rhs&gt;
+  | &lt;ide&gt; '[' &lt;expr&gt; ']' ':=' &lt;expr&gt;
+  | '*' &lt;expr&gt; ':=' &lt;expr&gt;
+
+&lt;rhs&gt; ::=
+    '*' &lt;expr&gt;
+  | &lt;ide&gt;
+  | '[' &lt;expr&gt; ']'
+  | 'protect' '(' &lt;rhs&gt; ')'
+  | &lt;expr&gt;
+
+&lt;expr&gt; :=
+    'true' | 'false'
+  | &lt;int&gt;
+  | &lt;ide&gt;
+  | 'length' '(' &lt;expr&gt; ')'
+  | 'base' '(' &lt;expr&gt; ')'
+  | &lt;expr&gt; '+' &lt;expr&gt;
+  | &lt;expr&gt; '&lt;' &lt;expr&gt;
+  | &lt;expr&gt; '?' &lt;expr&gt; ':' &lt;expr&gt;
+  | '(' &lt;expr&gt; ')'
+  </pre>
+  </details>
   <button id="btn">Parse</button>
   <div id="output">
 
