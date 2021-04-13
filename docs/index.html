@@ -254,7 +254,6 @@ ${this.edges.map(x => x.toString()).join("\n")}
         case "name":
           {
             const node = graph.addNode(expr.name, 0)
-            node.style = "filled"
             if(genAlphaNodes.checked) {
               const alpha = graph.addNode(`alpha_${expr.name}`)
               graph.addEdge(node.idx, alpha.idx)
