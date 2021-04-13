@@ -24,6 +24,10 @@
   <br>
   Generate full def-use graph: <input id="gen-defuse" type="checkbox">
   <br>
+  Disallow source/sink edges: <input id="disallow-sink-source" type="checkbox">
+  <br>
+  Use altered weights: <input id="use-altweights" type="checkbox">
+  <br>
   <textarea id="input" height=100 width=100>
     x := 0;
     while x < length(a) do
@@ -78,8 +82,157 @@
   </div>
 
   <script>
+    class Node {
+      /**
+       * @param {Number} idx
+       * @param {String} label
+       */
+      constructor(idx, label) {
+        this.idx = idx
+        this.label = label
+      }
+
+      toString() {
+        let str = `${this.idx} [label="${this.label}"`
+        if(this.color) {
+          str += ` color="${this.color}"`
+        }
+        if(this.fontcolor) {
+          str += ` fontcolor="${this.fontcolor}"`
+        }
+        if(this.fontsize) {
+          str += ` fontsize=${this.fontsize}`
+        }
+        if(this.shape) {
+          str += ` shape=${this.shape}`
+        }
+        if(this.style) {
+          str += ` style=${this.style}`
+        }
+        str += '];'
+        return str
+      }
+    }
+
+    class Edge {
+      /**
+       * @param {Number} from
+       * @param {Number} to
+       */
+      constructor(from, to) {
+        this.from = from
+        this.to = to
+      }
+
+      toString() {
+        let str = `${this.from} -> ${this.to} [`
+        if(this.label) {
+          str += ` label="${this.label}"`;
+        }
+        if(this.color) {
+          str += ` color="${this.color}"`
+        }
+        if(this.fontcolor) {
+          str += ` fontcolor="${this.fontcolor}"`
+        }
+        if(this.shape) {
+          str += ` shape=${this.shape}`
+        }
+        str += '];'
+        return str
+      }
+    }
+
+    class Graph {
+      constructor() {
+        this.nodes = []
+        this.edges = []
+      }
+
+      /**
+       * Creates a new node or returns an existing node with the same label
+       * 
+       * @param {String} label
+       * @return {Node}
+       */
+      addNode(label, depth) {
+        const oldNodeIdx = this.nodes.findIndex(x => x.label === label)
+        if(oldNodeIdx >= 0) {
+          return this.nodes[oldNodeIdx]
+        } else {
+          const newNodeIdx = this.nodes.length
+          const newNode = new Node(newNodeIdx, label)
+          newNode.depth = depth
+          this.nodes.push(newNode)
+          return newNode
+        }
+      }
+
+      /**
+       * @param {Number} fromIdx
+       * @param {Number} toIdx
+       */
+      addEdge(fromIdx, toIdx) {
+        const oldEdgeIdx = this.edges.findIndex(x => x.from === fromIdx && x.to === toIdx)
+        if(oldEdgeIdx >= 0) {
+          return this.edges[oldEdgeIdx]
+        } else {
+          const newEdgeIdx = this.edges.length
+          const newEdge = new Edge(fromIdx, toIdx)
+          this.edges.push(newEdge)
+          return newEdge
+        }
+      }
+
+      toString() {
+        return `digraph {
+${this.nodes.map(x => x.toString()).join("\n")}
+${this.edges.map(x => x.toString()).join("\n")}
+}`
+      }
+
+      /**
+       * @param {Number} fromIdx
+       * @param {Number} toIdx
+       */
+      doEdmondsKarp(fromIdx, toIdx) {
+        while(true) {
+          const q = [fromIdx]
+          const pred = []
+          const cutSet = new Set([fromIdx])
+          while(q.length > 0) {
+            const cur = q.shift()
+            cutSet.add(cur)
+            this.edges.filter(x => x.from === cur).forEach(e => {
+              e.cap = e.cap || 1
+              e.flow = e.flow || 0
+              if(!pred[e.to] && e.to !== fromIdx && e.cap > e.flow) {
+                pred[e.to] = e
+                q.push(e.to)
+              }
+            })
+          }
+
+          if(!pred[toIdx]) {
+            return cutSet
+          }
+
+          let pushFlow = Number.MAX_VALUE
+          for(let e = pred[toIdx]; e; e = pred[e.from]) {
+            pushFlow = Math.min(pushFlow, e.cap - e.flow)
+          }
+
+          for (let e = pred[toIdx]; e; e = pred[e.from]) {
+            e.flow += pushFlow
+          }
+        }
+      }
+    }
+
     const genAlphaNodes = document.getElementById("gen-alpha")
     const genFullDefUse = document.getElementById("gen-defuse")
+    const disallowSourceSink = document.getElementById("disallow-sink-source")
+    const useAltWeights = document.getElementById("use-altweights")
 
     /**
      * @callback genNewNameCallback
@@ -89,103 +242,100 @@
     /**
      * Analyzes an expression
      * @param expr The expression to analyze
-     * @param {Set<String>} edgeSet Where new edges will be put
-     * @param {Set<String>} nameSet Where new names will be put
-     * @param {genNewNameCallback} getNewName Generates fresh names
-     * @returns A tuple containing the name of the expression and its string representation
+     * @param {Graph} graph
+     * @returns {Node}
      */
-    function getExpressionConstraints(expr, edgeSet, nameSet, getNewName) {
+    function getExpressionConstraints(expr, graph, depth) {
+      depth = depth || 0
       switch(expr.type) {
         case "int":
         case "bool":
-          return [ expr.value.toString(), expr.value.toString() ]
+          return graph.addNode(expr.value.toString(), 0)
         case "name":
-          if(genAlphaNodes.checked) { edgeSet.add(`${expr.name} -> alpha_${expr.name}`) }
-          nameSet.add(`${expr.name} [style=filled]`)
-          return [ expr.name, expr.name ]
+          {
+            const node = graph.addNode(expr.name, 0)
+            node.style = "filled"
+            if(genAlphaNodes.checked) {
+              const alpha = graph.addNode(`alpha_${expr.name}`)
+              graph.addEdge(node.idx, alpha.idx)
+            }
+
+            return node
+          }
         case "length":
         case "base":
           {
-            const newName = getNewName()
+            const e = getExpressionConstraints(expr.value, graph, depth)
+            const node = graph.addNode(`${expr.type}(${e.label})`, depth)
+            graph.addEdge(e.idx, node.idx)
 
-            const e = getExpressionConstraints(expr.value, edgeSet, nameSet, getNewName)
-            edgeSet.add(`${e[0]} -> ${newName}`)
-            nameSet.add(`${newName} [label="${expr.type}(${e[1]})"]`)
-
-            return [ newName, `${expr.type}(${e[1]})` ]
+            return node
           }
         case "select":
           {
-            const newName = getNewName()
+            const e1 = getExpressionConstraints(expr.e1, graph, depth)
+            const e2 = getExpressionConstraints(expr.e2, graph, depth)
+            const e3 = getExpressionConstraints(expr.e3, graph, depth)
+            const node = graph.addNode(`${e1.label} ? ${e2.label} : ${e3.label}`, depth)
+            graph.addEdge(e1.idx, node.idx)
 
-            const e1 = getExpressionConstraints(expr.e1, edgeSet, nameSet, getNewName);
-            const e2 = getExpressionConstraints(expr.e2, edgeSet, nameSet, getNewName);
-            const e3 = getExpressionConstraints(expr.e3, edgeSet, nameSet, getNewName);
-
-            edgeSet.add(`${e1[0]} -> ${newName}`)
             if(genFullDefUse.checked) {
-              edgeSet.add(`${e2[0]} -> ${newName}`)
-              edgeSet.add(`${e3[0]} -> ${newName}`)
+              graph.addEdge(e2.idx, node.idx)
+              graph.addEdge(e3.idx, node.idx)
             }
-            nameSet.add(`${newName} [label="${e1[1]} ? ${e2[1]} : ${e3[1]}"]`)
-            return [ newName, `${e1[1]} ? ${e2[1]} : ${e3[1]}` ]
+
+            return node
           }
         case "op":
           {
-            const newName = getNewName();
+            const e1 = getExpressionConstraints(expr.e1, graph, depth)
+            const e2 = getExpressionConstraints(expr.e2, graph, depth)
+            const node = graph.addNode(`${e1.label} ${expr.op} ${e2.label}`, depth)
+            graph.addEdge(e1.idx, node.idx)
+            graph.addEdge(e2.idx, node.idx)
 
-            const e1 = getExpressionConstraints(expr.e1, edgeSet, nameSet, getNewName);
-            const e2 = getExpressionConstraints(expr.e2, edgeSet, nameSet, getNewName);
-            
-            edgeSet.add(`${e1[0]} -> ${newName}`)
-            edgeSet.add(`${e2[0]} -> ${newName}`)
-            nameSet.add(`${newName} [label="${e1[1]} ${expr.op} ${e2[1]}"]`)
-            return [ newName, `${e1[1]} ${expr.op} ${e2[1]}` ]
+            return node
           }
         default: throw "Not implemented"
       }
     }
 
-    function getRhsConstraints(rhs, edgeSet, nameSet, getNewName) {
+    function getRhsConstraints(rhs, graph, depth) {
       switch(rhs.type) {
         case "expr": {
-          return getExpressionConstraints(rhs.expr, edgeSet, nameSet, getNewName);
+          return getExpressionConstraints(rhs.expr, graph, depth)
         }
         case "arr-read": {
-          const e = getExpressionConstraints(rhs.index, edgeSet, nameSet, getNewName)
-          const newName = getNewName()
-          nameSet.add(`${newName} [label="${rhs.arr}[${e[1]}]"]`)
-          edgeSet.add(`${e[0]} -> _S_`)
-          edgeSet.add(`_T_ -> ${newName}`)
+          const e = getExpressionConstraints(rhs.index, graph, depth)
+          const node = graph.addNode(`${rhs.arr}[${e.label}]`, depth)
+          graph.addEdge(e.idx, 1)
+          graph.addEdge(0, node.idx)
+
           if(genFullDefUse.checked) {
-            edgeSet.add(`${e[0]} -> ${newName}`)
+            graph.addEdge(e.idx, node.idx)
           }
-          return [newName, `${rhs.arr}[${e[1]}]`]
+          return node
         }
         case "ptr-read": {
-          const e = getExpressionConstraints(rhs.expr, edgeSet, nameSet, getNewName)
-          const newName = getNewName()
-
-          nameSet.add(`${newName} [label="*${e[1]}"]`)
-          edgeSet.add(`${e[0]} -> _S_`)
-          edgeSet.add(`_T_ -> ${e[0]}`)
+          const e = getExpressionConstraints(rhs.index, graph, depth)
+          const node = graph.addNode(`*${e.label}`, depth)
+          graph.addEdge(e.idx, 1)
+          graph.addEdge(0, e.idx)
 
           if(genFullDefUse.checked) {
-            edgeSet.add(`${newName} -> ${e[0]}`)
+            graph.addEdge(node.idx, e.idx)
           }
-
-          return [newName, `*${e[1]}`]
+          return node
         }
         case "protect": {
-          const r = getRhsConstraints(rhs.arg, edgeSet, nameSet, getNewName)
-          const newName = getNewName()
-          nameSet.add(`${newName} [label="protect(${r[1]})"]`)
+          const r = getRhsConstraints(rhs.arg, graph, depth)
+          const node = graph.addNode(`protect(${r.label})`, depth)
 
           if(genFullDefUse.checked) {
-            edgeSet.add(`${newName} -> ${r[0]}`)
+            graph.addEdge(node.idx, r.idx)
           }
 
-          return [newName, `protect(${r[1]})`]
+          return node
         }
       }
     }
@@ -193,63 +343,51 @@
     /**
      * Analyzes a command
      * @param expr The command to analyze
-     * @param {Set<String>} edgeSet Where new expression edges will be put
-     * @param {Set<String>} nameSet Where new expression names will be put
-     * @param {genNewNameCallback} getNewName Generates fresh expression names
      */
-    function getCommandConstraints(cmd, edgeSet, nameSet, getNewName) {
+    function getCommandConstraints(cmd, graph, depth) {
       switch(cmd.type) {
         case "skip":
         case "fail": break;
         case "seq": {
-          getCommandConstraints(cmd.c1, edgeSet, nameSet, getNewName)
-          getCommandConstraints(cmd.c2, edgeSet, nameSet, getNewName)
+          getCommandConstraints(cmd.c1, graph, depth)
+          getCommandConstraints(cmd.c2, graph, depth)
           break;
         }
         case "if": {
-          const cond = getExpressionConstraints(cmd.cond, edgeSet, nameSet, getNewName)
-          getCommandConstraints(cmd.c1, edgeSet, nameSet, getNewName)
-          getCommandConstraints(cmd.c2, edgeSet, nameSet, getNewName)
+          const cond = getExpressionConstraints(cmd.cond, graph, depth)
+          getCommandConstraints(cmd.c1, graph, depth)
+          getCommandConstraints(cmd.c2, graph, depth)
 
-          edgeSet.add(`${cond[0]} -> _S_`);
+          graph.addEdge(cond.idx, 1)
           break;
         }
         case "while": {
-          const cond = getExpressionConstraints(cmd.cond, edgeSet, nameSet, getNewName)
-          getCommandConstraints(cmd.body, edgeSet, nameSet, getNewName)
+          const cond = getExpressionConstraints(cmd.cond, graph, depth)
+          getCommandConstraints(cmd.body, graph, depth + 1)
 
-          edgeSet.add(`${cond[0]} -> _S_`);
+          graph.addEdge(cond.idx, 1)
           break;
         }
         case "asgn": {
-          const r = getRhsConstraints(cmd.value, edgeSet, nameSet, getNewName)
-          edgeSet.add(`${r[0]} -> ${cmd.name}`)
+          const r = getRhsConstraints(cmd.value, graph, depth)
+          const node = graph.addNode(cmd.name, depth)
+          graph.addEdge(r.idx, node.idx)
           break;
         }
         case "arr-write": {
-          const e1 = getExpressionConstraints(cmd.index, edgeSet, nameSet, getNewName)
-          const e2 = getExpressionConstraints(cmd.expr, edgeSet, nameSet, getNewName)
-          edgeSet.add(`${e1[0]} -> _S_`)
+          const e1 = getExpressionConstraints(cmd.index, graph, depth)
+          const e2 = getExpressionConstraints(cmd.expr, graph, depth)
+          graph.addEdge(e1.idx, 1)
           break;
         }
         case "ptr-write": {
-          const e1 = getExpressionConstraints(cmd.ptr, edgeSet, nameSet, getNewName)
-          const e2 = getExpressionConstraints(cmd.expr, edgeSet, nameSet, getNewName)
-          edgeSet.add(`${e1[0]} -> _S_`)
+          const e1 = getExpressionConstraints(cmd.ptr, graph, depth)
+          const e2 = getExpressionConstraints(cmd.expr, graph, depth)
+          graph.addEdge(e1.idx, 1)
           break;
         }
         default: throw `Not implemented: ${cmd.type}`
       }
-    }
-
-    function getDigraph(edgeSet, nameSet) {
-      return `digraph {
-        _T_ [label="T" shape=circle fontsize=20 fontcolor="#fc369d" color="#fc369d"]
-        _S_ [label="S" shape=circle fontsize=20 fontcolor="#1cbec2" color="#1cbec2"]
-        ${[...nameSet.values()].join("\n")}
-
-        ${[...edgeSet.values()].join("\n")}
-      }`
     }
 
     const input = document.getElementById("input")
@@ -258,12 +396,37 @@
 
     btn.addEventListener('click', function() {
       try {
-        let i = 0;
-        const edgeSet = new Set();
-        const nameSet = new Set();
+        const graph = new Graph()
         const cmd = parser.parse(input.value.trim())
-        getCommandConstraints(cmd, edgeSet, nameSet, () => `e_${i++}`)
-        const svg = Viz(getDigraph(edgeSet, nameSet), "svg")
+        const T = graph.addNode("T", 0)
+        T.fontcolor = "#fc369d"
+        T.shape = "circle"
+        T.fontsize = 20
+        const S = graph.addNode("S", 0)
+        S.fontcolor = "#1cbec2"
+        S.shape = "circle"
+        S.fontsize = 20
+
+        getCommandConstraints(cmd, graph, 0)
+        if(useAltWeights.checked) {
+          graph.edges.forEach(x => {
+            x.cap = Math.pow(10, graph.nodes[x.to].depth)
+          })
+        }
+        graph.edges.forEach(x => {
+          x.label = x.cap || 1
+        })
+        if(disallowSourceSink.checked) {
+          graph.edges.filter(x => x.from === 0 || x.to === 1).forEach(x => {
+            x.cap = Number.MAX_VALUE
+            x.label = "inf"
+          })
+        }
+        const res = graph.doEdmondsKarp(0, 1)
+        for(let item of res.values()) {
+          graph.nodes[item].color = "#ff0000"
+        }
+        const svg = Viz(graph.toString(), "svg")
         output.innerHTML = svg;
       } catch(e) {
         output.innerText = e.toString()
