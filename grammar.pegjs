@@ -1,4 +1,11 @@
-start = command
+start = decls
+
+decls
+  = name:([a-zA-Z][a-zA-Z0-9]*) [ \n\t]* ":" [ \n\t]*
+      ("int"
+      / "[" [ \n\t]* [0-9]+ [ \n\t]* "," [ \n\t]* [0-9]+ [ \n\t]* "]")
+    [ \n\t]* ";" [ \n\t]* c:decls { return c }
+  / command
 
 value
   = num:[0-9]+ { return { type: "int", value: parseInt(num.join(""), 10) } }
@@ -23,7 +30,7 @@ command
 
 right_hand_side
   = "*" [ \n\t]* e:expr { return { type: "ptr-read", expr: e } }
-  / "protect" [ \n\t]* "(" [ \n\t]* r:right_hand_side ")" { return { type: "protect", arg: r } }
+  / ("protect_slh" / "protect_fence" / "protect") [ \n\t]* "(" [ \n\t]* r:right_hand_side ")" { return { type: "protect", arg: r } }
   / arr:([a-zA-Z][a-zA-Z0-9]*) [ \n\t]* "[" [ \n\t]* e2:expr [ \n\t]* "]" { return { type: "arr-read", arr: arr.join(""), index:e2 } }
   / e:expr { return { type: "expr", expr: e } }
 

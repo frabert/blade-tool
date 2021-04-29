@@ -31,17 +31,10 @@
   Use altered weights: <input id="use-altweights" type="checkbox">
   <br>
   <textarea id="input" height=100 width=100>
-    x := 0;
-    while x < length(a) do
-      y := a[x];
-      b[y] := x + 1;
-      z := b[y];
-      if z < 0 then
-        x:=0
-      else
-        y:=0
-      endif
-    endwhile
+x := a[i];
+y := a[j];
+z := x + y;
+w := a[z];
   </textarea><br>
   <details>
     <summary>Syntax:</summary>
@@ -258,7 +251,9 @@ ${this.edges.map(x => x.toString()).join("\n")}
             const node = graph.addNode(expr.name, 0)
             if(genAlphaNodes.checked) {
               const alpha = graph.addNode(`alpha_${expr.name}`)
-              graph.addEdge(node.idx, alpha.idx)
+              const x = graph.addEdge(node.idx, alpha.idx)
+              x.cap = Number.MAX_VALUE
+              x.label = "inf"
             }
 
             return node
@@ -268,7 +263,9 @@ ${this.edges.map(x => x.toString()).join("\n")}
           {
             const e = getExpressionConstraints(expr.value, graph, depth)
             const node = graph.addNode(`${expr.type}(${e.label})`, depth)
-            graph.addEdge(e.idx, node.idx)
+            const x = graph.addEdge(e.idx, node.idx, Math.MAX_VALUE)
+            x.cap = Number.MAX_VALUE
+            x.label = "inf"
 
             return node
           }
@@ -278,11 +275,17 @@ ${this.edges.map(x => x.toString()).join("\n")}
             const e2 = getExpressionConstraints(expr.e2, graph, depth)
             const e3 = getExpressionConstraints(expr.e3, graph, depth)
             const node = graph.addNode(`${e1.label} ? ${e2.label} : ${e3.label}`, depth)
-            graph.addEdge(e1.idx, node.idx)
+            let x = graph.addEdge(e1.idx, node.idx)
+            x.cap = Number.MAX_VALUE
+            x.label = "inf"
 
             if(genFullDefUse.checked) {
-              graph.addEdge(e2.idx, node.idx)
-              graph.addEdge(e3.idx, node.idx)
+              x = graph.addEdge(e2.idx, node.idx)
+              x.cap = Number.MAX_VALUE
+              x.label = "inf"
+              x = graph.addEdge(e3.idx, node.idx)
+              x.cap = Number.MAX_VALUE
+              x.label = "inf"
             }
 
             return node
@@ -292,8 +295,13 @@ ${this.edges.map(x => x.toString()).join("\n")}
             const e1 = getExpressionConstraints(expr.e1, graph, depth)
             const e2 = getExpressionConstraints(expr.e2, graph, depth)
             const node = graph.addNode(`${e1.label} ${expr.op} ${e2.label}`, depth)
-            graph.addEdge(e1.idx, node.idx)
-            graph.addEdge(e2.idx, node.idx)
+            let x = graph.addEdge(e1.idx, node.idx)
+            x.cap = Number.MAX_VALUE
+            x.label = "inf"
+
+            x = graph.addEdge(e2.idx, node.idx)
+            x.cap = Number.MAX_VALUE
+            x.label = "inf"
 
             return node
           }
@@ -415,6 +423,7 @@ ${this.edges.map(x => x.toString()).join("\n")}
           })
         }
         graph.edges.forEach(x => {
+          if(x.label) return;
           x.label = x.cap || 1
         })
         if(disallowSourceSink.checked) {
